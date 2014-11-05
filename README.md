@@ -27,10 +27,26 @@ Check out the [Auto Installer Project](https://github.com/mastercoin-MSC/install
 Install dependencies:
 ```
 sudo apt-get update
-sudo apt-get install git build-essential autoconf libtool libboost-all-dev pkg-config libcurl4-openssl-dev libleveldb-dev libzmq-dev libconfig++-dev libncurses5-dev python-simplejson python-git python-pip libffi-dev uwsgi uwsgi-plugin-python
+sudo apt-get install git build-essential autoconf libtool libboost-all-dev pkg-config libcurl4-openssl-dev libleveldb-dev libzmq-dev libconfig++-dev libncurses5-dev python-simplejson python-git python-pip libffi-dev libpq-dev uwsgi uwsgi-plugin-python
 ```
-Clone repository:
+For Armory offline addresses build and install Armory packages
 ```
+sudo apt-get install git-core build-essential pyqt4-dev-tools swig libqtcore4 libqt4-dev python-qt4 python-dev python-twisted python-psutil
+git clone git://github.com/etotheipi/BitcoinArmory.git
+cd BitcoinArmory
+sudo make
+sudo make install
+```
+NOTE: If you've recently upgrade from ubuntu 13 to 14 release do not install python-pip with apt-get. Instead:
+```
+cd
+sudo apt-get remove python-pip
+wget https://raw.github.com/pypa/pip/master/contrib/get-pip.py
+sudo python get-pip.py
+```
+Clone Omni repository:
+```
+cd
 git clone https://github.com/mastercoin-MSC/omniwallet
 ```
 Install nginx:
@@ -41,7 +57,6 @@ pip install -r requirements.txt
 nginx=stable # use nginx=development for latest development version
 add-apt-repository ppa:nginx/$nginx
 apt-get install nginx
-curl -sL https://deb.nodesource.com/setup | bash -
 cp etc/nginx/sites-available/default /etc/nginx/sites-available
 ```
 Find and replace the following section near the beginning of /etc/nginx/sites-available/default:
@@ -53,10 +68,10 @@ nano /etc/nginx/sites-available/default
 ```
 Install npm:
 ```
+curl -sL https://deb.nodesource.com/setup | bash -
 apt-get install nodejs
 npm install -g uglify-js
 npm install -g grunt-cli
-chmod -R 777 ~/tmp
 chmod -R 777 ~/.npm
 exit
 npm install grunt
