@@ -59,11 +59,11 @@ do
         SERVER_PID=$!
         echo $SERVER_PID > /tmp/omniapp.pid
         #get snapshot of directory files
-        APISHA=`ls -lR $APPDIR/api | sha1sum`
+        APISHA=`ls -lR $APPDIR/api/*.py | sha1sum`
     fi
 
     #check if api files have changed
-    CHECKSHA=`ls -lR $APPDIR/api | sha1sum`
+    CHECKSHA=`ls -lR $APPDIR/api/*.py | sha1sum`
     #Trigger api reload if changed
     if [ "$APISHA" != "$CHECKSHA" ]; then
         uwsgi --reload /tmp/omniapp.pid
@@ -71,15 +71,16 @@ do
         echo Api Reloaded
     fi
 
-    ps a | grep -v grep | grep "omni-websocket" > /dev/null
-    if [ $? -eq 0 ]; then
-        echo "websocket api is running."
-      else
-        echo "Starting websocket daemon..."
-        cd $APPDIR/api/websocket
-        node omni-websocket.js > $DATADIR/nodeapp.log &
-        WEBSOCKET_PID=$!
-    fi
+    #disable websockets until we are ready to use it
+    #ps a | grep -v grep | grep "omni-websocket" > /dev/null
+    #if [ $? -eq 0 ]; then
+    #    echo "websocket api is running."
+    #  else
+    #    echo "Starting websocket daemon..."
+    #    cd $APPDIR/api/websocket
+    #    node omni-websocket.js > $DATADIR/nodeapp.log &
+    #    WEBSOCKET_PID=$!
+    #fi
 
     mkdir -p $DATADIR
     cd $DATADIR
