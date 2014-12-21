@@ -26,6 +26,7 @@ var app = angular.module('omniwallet', [
   'vr.filters.passwordStrength',
   'ngIdle',
   'reCAPTCHA',
+  'pascalprecht.translate',
   'omniConfig',
   'omniFactories',
   'omniServices',
@@ -69,7 +70,7 @@ var app = angular.module('omniwallet', [
   $routeProvider.when('/wallet/:page?', {
       templateUrl: function(route) {
         //new views added here
-        var availableViews = ['overview', 'addresses', 'trade', 'history', 'send', 'myoffers'];
+        var availableViews = ['overview', 'addresses', 'trade', 'history', 'send', 'myoffers', 'settings'];
 
         var viewFound = availableViews.indexOf(route.page);
         if (viewFound == -1)
@@ -138,7 +139,7 @@ var app = angular.module('omniwallet', [
   $locationProvider.html5Mode(true).hashPrefix('!');
 });
 
-app.config(function($idleProvider, $keepaliveProvider, reCAPTCHAProvider, idleDuration, idleWarningDuration, reCaptchaKey) {
+app.config(function($idleProvider, $keepaliveProvider, reCAPTCHAProvider, idleDuration, idleWarningDuration, reCaptchaKey, $translateProvider, EnglishTranslation) {
   $idleProvider.idleDuration(idleDuration);
   $idleProvider.warningDuration(idleWarningDuration);
   // $keepaliveProvider.interval(2);
@@ -149,12 +150,16 @@ app.config(function($idleProvider, $keepaliveProvider, reCAPTCHAProvider, idleDu
   reCAPTCHAProvider.setOptions({
       theme: 'clean'
   });
+
+  $translateProvider.translations('en', EnglishTranslation);
+   
+  $translateProvider.preferredLanguage('en');
 })
-.run(function(userService, $location) {
+.run(function(Account, $location, TESTNET) {
   //Whitelist pages
   whitelisted = ['login', 'about', 'status', 'explorer'];
 
-  if (!userService.loggedIn()) {
+  if (!Account.loggedIn) {
     for (var i = 0; i < whitelisted.length; i++) {
       if ($location.path().search(whitelisted[i]) != -1) {
         return;

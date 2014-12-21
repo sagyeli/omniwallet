@@ -1,154 +1,64 @@
-import urlparse
-import os, sys, re, random,pybitcointools, bitcoinrpc, math
+import os,sys, random, pybitcointools, math, hashlib
 from decimal import Decimal
-from flask import Flask, request, jsonify, abort, json, make_response
-from msc_apps import *
-import config
+tools_dir = os.environ.get('TOOLSDIR')
+lib_path = os.path.abspath(tools_dir)
+sys.path.append(lib_path)
+from msc_utils_obelisk import get_utxo
+from rpcclient import *
 
-#conn = bitcoinrpc.connect_to_local()
-conn = getRPCconn()
-#tools_dir = os.environ.get('TOOLSDIR')
-#lib_path = os.path.abspath(tools_dir)
-#sys.path.append(lib_path)
-#data_dir_root = os.environ.get('DATADIR')
-
-app = Flask(__name__)
-app.debug = True
 
 HEXSPACE_SECOND='21'
-mainnet_exodus_address='1EXoDusjGwvnjZUyKkxZ4UHEf77z6A5S4P'
-testnet_exodus_address='mpexoDuSkGGqvqrkrjiFng38QPkJQVFyqv'
-magicbyte=0
-testnet=False
-exodus_address=mainnet_exodus_address
 
-@app.route('/<int:tx_type>', methods=['POST'])
-def generate_tx(tx_type):
-
-    #update this to support more transactions
-    supported_transactions = [50,51, 0]
-
-    if tx_type not in supported_transactions:
-        return jsonify({ 'status': 400, 'data': 'Unsupported transaction type '+str(tx_type) })
-    
-    expected_fields=['transaction_version', 'transaction_from','pubkey','fee']
-
-    print "Form ",request.form
-
-    #might add tx 00, 53, etc later;
-    if tx_type == 50:
-        expected_fields+=['ecosystem', 'property_type', 'previous_property_id', 'property_category', 'property_subcategory', 'property_name', 'property_url', 'property_data', 'number_properties']
-    elif tx_type == 51:
-        expected_fields+=['ecosystem', 'property_type', 'previous_property_id', 'property_category', 'property_subcategory', 'property_name', 'property_url', 'property_data', 'currency_identifier_desired', 'number_properties', 'deadline', 'earlybird_bonus', 'percentage_for_issuer']
-    elif tx_type == 0:
-        expected_fields+=['currency_identifier', 'amount_to_transfer', 'transaction_to']
-    for field in expected_fields:
-        if field not in request.form:
-            return jsonify({ 'status': 403, 'data': 'No field in request form '+field })
-        elif request.form[field] == '':
-            return jsonify({ 'status': 403, 'data': 'Empty field in request form '+field })
-
-    if 'testnet' in request.form and ( request.form['testnet'] in ['true', 'True'] ):
-        global testnet
-        testnet =True
-        global magicbyte
-        magicbyte = 111
-        global exodus_address
-        exodus_address=testnet_exodus_address
-
-    try:
-      if config.D_PUBKEY and ( 'donate' in request.form ) and ( request.form['donate'] in ['true', 'True'] ):
-        print "We're Donating to pubkey for: "+pybitcointools.pubkey_to_address(config.D_PUBKEY)
-        pubkey = config.D_PUBKEY
-      else:
-        print "not donating"
-        pubkey = request.form['pubkey']
-    except NameError, e:
-      print e
-      pubkey = request.form['pubkey']
-
-    txdata = prepare_txdata(tx_type, request.form)
-    if tx_type == 50:
-        try:
-            tx50bytes = prepare_txbytes(txdata)
-            packets = construct_packets( tx50bytes[0], tx50bytes[1], request.form['transaction_from'] )
-            unsignedhex = build_transaction( request.form['fee'], pubkey, packets[0], packets[1], packets[2], request.form['transaction_from'])
-            
-            #DEBUG print tx50bytes, packets, unsignedhex
-            return jsonify({ 'status': 200, 'unsignedhex': unsignedhex[0] , 'sourceScript': unsignedhex[1] });
-        except Exception as e:
-            error=jsonify({ 'status': 502, 'data': 'Unspecified error '+str(e)}) 
-            return error
-    elif tx_type == 51:
-        try:
-            tx51bytes = prepare_txbytes(txdata)
-            packets = construct_packets( tx51bytes[0], tx51bytes[1], request.form['transaction_from'])
-            unsignedhex= build_transaction( request.form['fee'], pubkey, packets[0], packets[1], packets[2], request.form['transaction_from'])
-            #DEBUG print tx51bytes, packets, unsignedhex
-            return jsonify({ 'status': 200, 'unsignedhex': unsignedhex[0] , 'sourceScript': unsignedhex[1] });
-        except Exception as e:
-            error=jsonify({ 'status': 502, 'data': 'Unspecified error '+str(e)}) 
-            return error
-    elif tx_type == 0:
-        try:
-            tx0bytes = prepare_txbytes(txdata)
-            packets = construct_packets( tx0bytes[0], tx0bytes[1], request.form['transaction_from'])
-            unsignedhex= build_transaction( request.form['fee'], pubkey, packets[0], packets[1], packets[2], request.form['transaction_from'], request.form['transaction_to'])
-            #DEBUG print tx0bytes, packets, unsignedhex
-            return jsonify({ 'status': 200, 'unsignedhex': unsignedhex[0] , 'sourceScript': unsignedhex[1] });
-        except Exception as e:
-            error=jsonify({ 'status': 502, 'data': 'Unspecified error '+str(e)}) 
-            return error
-        
-def prepare_txdata(txtype,form):
+# helper funcs
+def prepare_txdata(txtype,data):
         txdata=[]
 
-        txdata.append(int(form['transaction_version']))
+        txdata.append(int(data['transaction_version']))
         txdata.append(int(txtype))
         
         if txtype == 50 or txtype == 51:
-            txdata.append(int(form['ecosystem']))
-            txdata.append(int(form['property_type']))
-            txdata.append(int(form['previous_property_id']))
+            txdata.append(int(data['ecosystem']))
+            txdata.append(int(data['property_type']))
+            txdata.append(int(data['previous_property_id']))
 
-            property_category=form['property_category']
+            property_category=data['property_category']
             property_category+='\0' if property_category[-1] != '\0' else ''
             txdata.append(property_category)
 
-            property_subcategory=form['property_subcategory']
+            property_subcategory=data['property_subcategory']
             property_subcategory+='\0' if property_subcategory[-1] != '\0' else ''
             txdata.append(property_subcategory)
 
-            property_name=form['property_name']
+            property_name=data['property_name']
             property_name+='\0' if property_name[-1] != '\0' else ''
             txdata.append(property_name)
 
-            property_url=form['property_url']
+            property_url=data['property_url']
             property_url+='\0' if property_url[-1] != '\0' else ''
             txdata.append(property_url)
 
-            property_data=form['property_data']
+            property_data=data['property_data']
             property_data+='\0' if property_data[-1] != '\0' else ''
             txdata.append(property_data)
 
             if txtype == 51:
-                txdata.append(int(form['number_properties']))
-                txdata.append(int(form['currency_identifier_desired']))
-                txdata.append(int(form['deadline']))
-                txdata.append(int(math.ceil(float(form['earlybird_bonus']))))
-                txdata.append(int(math.ceil(float(form['percentage_for_issuer']))))
+                txdata.append(int(data['number_properties']))
+                txdata.append(int(data['currency_identifier_desired']))
+                txdata.append(int(data['deadline']))
+                txdata.append(int(math.ceil(float(data['earlybird_bonus']))))
+                txdata.append(int(math.ceil(float(data['percentage_for_issuer']))))
             else:
-                txdata.append(int(form['number_properties']))
+                txdata.append(int(data['number_properties']))
             
             return txdata
         elif txtype == 0:
-            txdata.append(int(form['currency_identifier']))
-            txdata.append(int(form['amount_to_transfer']))
+            txdata.append(int(data['currency_identifier']))
+            txdata.append(int(data['amount_to_transfer']))
             
             return txdata
         return [] #other txes are unimplemented
 
-# helper funcs
+
 def prep_bytes(letter):
     hex_bytes = hex(ord(letter))[2:]
     if len(hex_bytes) % 2 == 1:
@@ -284,7 +194,6 @@ def prepare_txbytes(txdata):
     return [byte_stream, total_bytes]
 
 def construct_packets(byte_stream, total_bytes, from_address):
-    import math
     total_packets = int(math.ceil(float(total_bytes)/30)) #get # of packets
     
     total_outs = int(math.ceil(float(total_packets)/2)) #get # of outs
@@ -363,6 +272,7 @@ def construct_packets(byte_stream, total_bytes, from_address):
     #DEBUG print plaintext_packets, obfuscation_packets,final_packets
     
     #add key identifier and ecdsa byte to new mastercoin data key
+    global magicbyte
     for i in range(len(final_packets)):
         obfuscated = '02' + final_packets[i] + "00" 
         #DEBUG print [obfuscated, len(obfuscated)]
@@ -372,7 +282,7 @@ def construct_packets(byte_stream, total_bytes, from_address):
             #set the last byte to something random in case we generated an invalid pubkey
             potential_data_address = pybitcointools.pubkey_to_address(obfuscated_randbyte, magicbyte)
             
-            if bool(conn.validateaddress(potential_data_address).isvalid):
+            if bool(validateaddress(potential_data_address)["isvalid"]):
                 final_packets[i] = obfuscated_randbyte
                 invalid = False
         #make sure the public key is valid using pybitcointools, if not, regenerate 
@@ -382,8 +292,8 @@ def construct_packets(byte_stream, total_bytes, from_address):
     return [final_packets,total_packets,total_outs]
     
 def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, total_outs, from_address, to_address=None):
-    print 'pubkey', pubkey, len(pubkey) 
-    if len(pubkey) < 100:
+    print 'pubkey', request.form['pubkey'], len(request.form['pubkey']) 
+    if len(request.form['pubkey']) < 100:
       print "Compressed Key, using hexspace 21"
       HEXSPACE_FIRST='21'
     else:
@@ -438,7 +348,7 @@ def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, t
     validnextinputs = []   #get valid redeemable inputs
     for unspent in unspent_tx:
         #retrieve raw transaction to spend it
-        prev_tx = conn.getrawtransaction(unspent[0])
+        prev_tx = getrawtransaction(unspent[0])
 
         for output in prev_tx.vout:
             if output['scriptPubKey']['reqSigs'] == 1 and output['scriptPubKey']['type'] != 'multisig':
@@ -447,7 +357,7 @@ def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, t
                         validnextinputs.append({ "txid": prev_tx.txid, "vout": output['n']})
                         break
 
-
+    global exodus_address
     validnextoutputs = { exodus_address: 0.00005757 }
     if to_address != None:
         validnextoutputs[to_address]=0.00005757 #Add for simple send
@@ -455,11 +365,11 @@ def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, t
     if change >= 5757: # send anything above dust to yourself
         validnextoutputs[ from_address ] = float( Decimal(change)/Decimal(1e8) )
     
-    unsigned_raw_tx = conn.createrawtransaction(validnextinputs, validnextoutputs)
+    unsigned_raw_tx = createrawtransaction(validnextinputs, validnextoutputs)
     
     #DEBUG print change,unsigned_raw_tx
 
-    json_tx =  conn.decoderawtransaction(unsigned_raw_tx)
+    json_tx =  decoderawtransaction(unsigned_raw_tx)
     
     #append  data structure
     ordered_packets = []
@@ -473,7 +383,7 @@ def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, t
             ordered_packets[i].append(final_packets[index])
             index = index + 1
     #DEBUG print ordered_packets
-    
+    global magicbyte
     for i in range(total_outs):
         hex_string = "51" + HEXSPACE_FIRST + pubkey
         asm_string = "1 " + pubkey
@@ -529,16 +439,7 @@ def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, t
     inputsdata = []
     for _input in json_tx['vin']:
         prior_input_txhash = _input['txid'].upper()  
-        ihex = str(hex(_input['vout'])[2:]).rjust(2,"0")
-        lhex = len(ihex)
-        if lhex in [1,2]:
-            prior_input_index = ihex.ljust(8,"0")
-        elif lhex in [3,4]: 
-            prior_input_index = ihex[-2:].rjust(2,"0")+ihex[:-2].rjust(2,"0").ljust(6,"0")
-        elif lhex in [5,6]: 
-            prior_input_index = ihex[-2:].rjust(2,"0")+ihex[-4:-2].rjust(2,"0")+ihex[:-4].rjust(2,"0").ljust(4,"0")
-        elif lhex in [7,8]: 
-            prior_input_index = ihex[-2:].rjust(2,"0")+ihex[-4:-2].rjust(2,"0")+ihex[-6:-4].rjust(2,"0")+ihex[:-6].rjust(2,"0").ljust(2,"0")
+        prior_input_index = str(hex(_input['vout'])[2:]).rjust(2,"0").ljust(8,"0")
         input_raw_signature = _input['scriptSig']['hex']
         
         prior_txhash_bytes =  [prior_input_txhash[ start: start + 2 ] for start in range(0, len(prior_input_txhash), 2)][::-1]
@@ -582,13 +483,13 @@ def build_transaction(miner_fee_satoshis, pubkey,final_packets, total_packets, t
     hex_transaction = hex_transaction + blocklocktime
     
     #verify that transaction is valid
-    decoded_tx = conn.decoderawtransaction(''.join(hex_transaction).lower());
+    decoded_tx = decoderawtransaction(''.join(hex_transaction).lower());
     if 'txid' not in decoded_tx:
         raise Exception({ "status": "NOT OK", "error": "Network byte mismatch: Please try again"  })
 
     #DEBUG 
     print 'final hex ', ''.join(hex_transaction).lower()
-    #DEBUG print pprint.pprint(conn.decoderawtransaction(''.join(hex_transaction).lower()))
+    #DEBUG print pprint.pprint(decoderawtransaction(''.join(hex_transaction).lower()))
 
     unsigned_hex=''.join(hex_transaction).lower()
 

@@ -1,13 +1,14 @@
 
 
-function WalletController($scope, $q, $http, $modal, $location, userService) {
-  $scope.uuid = userService.getUUID();
+function WalletController($scope, $q, $http, $modal, $location, Account, Wallet) {
+  $scope.uuid = Account.uuid;
   $scope.loginLink = $location.protocol() + "://" + $location.host() + "/login/" + $scope.uuid;
-  //console.log(userService.getAllAddresses());
+  //console.log(Wallet.addresses);
 
-  $scope.addrList = userService.getAllAddresses().map(function(e, i, a) {
+// HACK: We check for Account.isLoggedIn since this controller is used
+  $scope.addrList = Account.loggedIn ? Wallet.addresses.map(function(e, i, a) {
     return e.address;
-  })
+  }) : [];
   $scope.addrListBal = []
   $scope.maxCurrencies = [];
   $scope.totals = {}
@@ -52,9 +53,9 @@ function WalletController($scope, $q, $http, $modal, $location, userService) {
     });
   });
 
-  $scope.disclaimerSeen = userService.data.disclaimerSeen;
+  $scope.disclaimerSeen = Account.settings.disclaimerSeen;
   $scope.$on('$locationChangeSuccess', function(path) {
-    userService.data.disclaimerSeen = true;
+    Account.settings.disclaimerSeen = true;
   });
 
   function getData(address) {
@@ -74,10 +75,10 @@ function WalletController($scope, $q, $http, $modal, $location, userService) {
 
 }
 
-function WalletHistoryController($scope, $q, $http, userService, hashExplorer) {
+function WalletHistoryController($scope, $q, $http, hashExplorer, Wallet) {
   $scope.setHashExplorer = hashExplorer.setHash.bind(hashExplorer);
-  //$scope.selectedAddress = userService.getAllAddresses()[0].address;
-  $scope.addresses = userService.getAllAddresses();
+  //$scope.selectedAddress = Wallet.addresses[0].address;
+  $scope.addresses = Wallet.addresses;
 
   $scope.getAllData = function getAllData() {
     var transaction_data = [];
@@ -237,7 +238,7 @@ function WalletHistoryController($scope, $q, $http, userService, hashExplorer) {
   }
 }
 
-function WalletTradeController($scope, $http, $q, userService) {
+function WalletTradeController($scope, $http, $q, Account) {
 
   //init and use global to pass data around
   $scope.global = {
@@ -246,6 +247,8 @@ function WalletTradeController($scope, $http, $q, userService) {
 
   $scope.onTradeView = true
   $scope.history = '/partials/wallet_history.html';
+
+  $scope.inactive = Account.getSetting("filterdexdust");
 
   $scope.setView = function(view, data) {
     if (view != 'tradeInfo'){
@@ -302,7 +305,12 @@ function WalletTradeController($scope, $http, $q, userService) {
     'MSC': 'Mastercoin',
     'TMSC': 'Test Mastercoin'
   }
-  $scope.currPairs = [['BTC', 'MSC'], ['BTC', 'TMSC']];
+  
+  if ( Account.getSetting("showtesteco") === 'true'){
+    $scope.currPairs = [['BTC', 'MSC'], ['BTC', 'TMSC']];
+  } else {
+    $scope.currPairs = [['BTC', 'MSC']];
+  }
 
   //Get the active currency pair
   $scope.activeCurrencyPair = []
@@ -331,7 +339,7 @@ function WalletTradeController($scope, $http, $q, userService) {
   }
 }
 
-function WalletTradeOverviewController($scope, $http, $q, userService, hashExplorer) {
+function WalletTradeOverviewController($scope, $http, $q, hashExplorer) {
   $scope.setHashExplorer = hashExplorer.setHash.bind(hashExplorer)
   $scope.currencyUnit = 'stom'
   $scope.timeNow = Date.now();
@@ -402,14 +410,18 @@ function WalletTradeOverviewController($scope, $http, $q, userService, hashExplo
   }
 }
 
-function WalletTradePendingController($scope, $http, $q, userService, hashExplorer) {
+function WalletTradePendingController($scope, $http, $q, Wallet, hashExplorer) {
   $scope.setHashExplorer = hashExplorer.setHash.bind(hashExplorer)
-  //$scope.selectedAddress = userService.getAllAddresses()[ userService.getAllAddresses().length-1 ].address;
+  //$scope.selectedAddress = Wallet.addresses[ Wallet.addresses.length-1 ].address;
   $scope.currencyUnit = 'stom'
   $scope.pendingThinking = true
-  $scope.hasAddressesWithPrivkey = userService.getAddressesWithPrivkey();
+  $scope.hasAddressesWithPrivkey = Wallet.addresses.filter(function(address){
+    return address.privkey && address.privkey.length == 58
+  }).map(function(e){
+          return e.address;
+        });
   $scope.selectedAddress = $scope.hasAddressesWithPrivkey[0];
-  userService.getCurrencies().filter(function(currency){
+  Wallet.assets.filter(function(currency){
        return currency.tradable;
   }).forEach(function(coin){
     if(coin.symbol=='BTC'){
